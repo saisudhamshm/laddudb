@@ -43,11 +43,11 @@ func handShake(masterAddr, slavePort string) error {
 	}
 
 	w := NewRESPreader(conn)
-	// buf := make([]byte, 1024)
+	buf := make([]byte, 1024)
 
 	w.Write(RespData{Type: Array, Array: []RespData{{Type: BulkString, Str: "PING"}}})
 	w.writer.Flush()
-	// conn.Read(buf)
+	conn.Read(buf)
 	// fmt.Println(string(buf))
 
 	w.Write(RespData{Type: Array, Array: []RespData{
@@ -56,7 +56,7 @@ func handShake(masterAddr, slavePort string) error {
 		{Type: BulkString, Str: slavePort}, // Replace with actual slave port
 	}})
 	w.writer.Flush()
-	// conn.Read(buf)
+	conn.Read(buf)
 	// fmt.Println(string(buf))
 
 	w.Write(RespData{Type: Array, Array: []RespData{

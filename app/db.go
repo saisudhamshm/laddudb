@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"net"
 	"os"
 	"time"
 
@@ -80,6 +82,11 @@ func (db *DataBase) init() {
 }
 
 func (db *DataBase) SaveRDB() error {
+	err := os.MkdirAll(db.dir, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create directory %s: %v", db.dir, err)
+	}
+
 	rdbFile := db.dir + "/" + db.dbfilename
 	f, err := os.Create(rdbFile)
 	if err != nil {
@@ -135,6 +142,38 @@ func (db *DataBase) SaveRDB() error {
 	err = enc.WriteEnd()
 	if err != nil {
 		return fmt.Errorf("failed to finalize RDB file: %v", err)
+	}
+
+	return nil
+}
+
+func sendEmptyRDB(conn net.Conn) error {
+	// Create an in-memory buffer to hold the RDB data
+	var rdbBuf bytes.Buffer
+
+	// Create the RDB content in the buffer
+	enc := encoder.NewEncoder(&rdbBuf)
+	if err := enc.WriteHeader(); err != nil {
+		return fmt.Errorf("failed to write header: %v", err)
+	}
+	if err := enc.WriteDBHeader(0, 0, 0); err != nil {
+		return fmt.Errorf("failed to write db header: %v", err)
+	}
+	if err := enc.WriteEnd(); err != nil {
+		return fmt.Errorf("failed to write end marker: %v", err)
+	}
+
+	// Get the RDB content
+	rdbData := rdbBuf.Bytes()
+
+	// Create the complete message with header and contents in a single buffer
+	var message bytes.Buffer
+	message.WriteString(fmt.Sprintf("$%d\r\n", len(rdbData)))
+	message.Write(rdbData)
+
+	// Send the complete message in one write
+	if _, err := conn.Write(message.Bytes()); err != nil {
+		return fmt.Errorf("failed to send RDB data: %v", err)
 	}
 
 	return nil

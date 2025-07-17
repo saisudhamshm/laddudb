@@ -44,9 +44,9 @@ func (db *DataBase) Get(key string) *string {
 	return nil
 }
 
-func NewDatabase(dir, dbfilename, port, replicationInfo string) *DataBase {
+func NewDatabase(dir, dbfilename, port, masterAddr string) *DataBase {
 	var isMaster bool
-	if replicationInfo == "" {
+	if masterAddr == "" {
 		isMaster = true
 	} else {
 		isMaster = false
@@ -61,12 +61,16 @@ func NewDatabase(dir, dbfilename, port, replicationInfo string) *DataBase {
 			IsMaster:         isMaster,
 			masterReplID:     "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
 			masterReplOffset: 0,
+			masterAddr:       masterAddr,
 		},
 	}
 	return db
 }
 
 func (db *DataBase) init() {
+	if !db.replicationInfo.IsMaster {
+		handShake(db.replicationInfo.masterAddr, db.port)
+	}
 	if _, err := os.Stat(db.dir + "/" + db.dbfilename); err == nil {
 		err := db.LoadRDB()
 		if err != nil {

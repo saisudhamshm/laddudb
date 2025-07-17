@@ -185,6 +185,8 @@ func handleConnection(conn net.Conn) {
 			}
 		} else if strings.ToLower(cmd) == "info" {
 			WriteReplInfo(db.replicationInfo, &conn, r)
+		} else if strings.ToLower(cmd) == "replconf" {
+			r.Write(RespData{Type: SimpleString, Str: "OK"})
 		} else {
 			r.Write(RespData{Type: Error, Str: "ERR unknown command '" + cmd + "'"})
 		}

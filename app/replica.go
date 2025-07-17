@@ -65,7 +65,7 @@ func handShake(masterAddr, slavePort string) error {
 		{Type: BulkString, Str: "psync2"}, // Replace with actual slave port
 	}})
 	w.writer.Flush()
-	// conn.Read(buf)
+	conn.Read(buf)
 	// fmt.Println(string(buf))
 
 	w.Write(RespData{Type: Array, Array: []RespData{
@@ -73,7 +73,7 @@ func handShake(masterAddr, slavePort string) error {
 		{Type: BulkString, Str: "?"},
 		{Type: BulkString, Str: "-1"}, // Replace with actual slave port
 	}})
-	// conn.Read(buf)
+	conn.Read(buf)
 	// fmt.Println(string(buf))
 
 	return nil

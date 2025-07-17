@@ -73,8 +73,8 @@ func handShake(masterAddr, slavePort string) error {
 		{Type: BulkString, Str: "?"},
 		{Type: BulkString, Str: "-1"}, // Replace with actual slave port
 	}})
+	w.writer.Flush()
 	conn.Read(buf)
-	// fmt.Println(string(buf))
 
 	return nil
 }

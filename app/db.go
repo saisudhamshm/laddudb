@@ -100,6 +100,7 @@ func (db *DataBase) SaveRDB() error {
 	if err != nil {
 		return fmt.Errorf("failed to write header: %v", err)
 	}
+
 	auxMap := map[string]string{
 		"redis-ver":    "7.2.0",
 		"redis-bits":   "64",
@@ -113,30 +114,40 @@ func (db *DataBase) SaveRDB() error {
 			return fmt.Errorf("failed to write aux field %s: %w", key, err)
 		}
 	}
-	err = enc.WriteDBHeader(0, uint64(len(db.M)), 0) // database 0, key count, TTL count
-	if err != nil {
-		return fmt.Errorf("failed to write database header: %w", err)
+
+	// Only write DB header and entries if there are actual keys
+	validKeys := 0
+	for _, entry := range db.M {
+		if entry.expiresAt == -1 || entry.expiresAt+entry.timestamp >= now {
+			validKeys++
+		}
 	}
 
-	for key, entry := range db.M {
-		if entry.expiresAt != -1 && entry.expiresAt+entry.timestamp < now {
-			continue // Skip expired keys
+	if validKeys > 0 {
+		err = enc.WriteDBHeader(0, uint64(validKeys), 0) // database 0, key count, TTL count
+		if err != nil {
+			return fmt.Errorf("failed to write database header: %w", err)
 		}
 
-		// Set expiry if exists
-		if entry.expiresAt != -1 {
-			expiry := entry.timestamp + entry.expiresAt
-			err = enc.WriteStringObject(key, []byte(entry.val), encoder.WithTTL(uint64(expiry)))
-			if err != nil {
-				return fmt.Errorf("failed to write expiry: %v", err)
+		for key, entry := range db.M {
+			if entry.expiresAt != -1 && entry.expiresAt+entry.timestamp < now {
+				continue // Skip expired keys
 			}
-		} else {
-			err = enc.WriteStringObject(key, []byte(entry.val))
-			if err != nil {
-				return fmt.Errorf("failed to write key-value: %v", err)
+
+			// Set expiry if exists
+			if entry.expiresAt != -1 {
+				expiry := entry.timestamp + entry.expiresAt
+				err = enc.WriteStringObject(key, []byte(entry.val), encoder.WithTTL(uint64(expiry)))
+				if err != nil {
+					return fmt.Errorf("failed to write expiry: %v", err)
+				}
+			} else {
+				err = enc.WriteStringObject(key, []byte(entry.val))
+				if err != nil {
+					return fmt.Errorf("failed to write key-value: %v", err)
+				}
 			}
 		}
-
 	}
 
 	err = enc.WriteEnd()
@@ -156,9 +167,6 @@ func sendEmptyRDB(conn net.Conn) error {
 	if err := enc.WriteHeader(); err != nil {
 		return fmt.Errorf("failed to write header: %v", err)
 	}
-	if err := enc.WriteDBHeader(0, 0, 0); err != nil {
-		return fmt.Errorf("failed to write db header: %v", err)
-	}
 	if err := enc.WriteEnd(); err != nil {
 		return fmt.Errorf("failed to write end marker: %v", err)
 	}
@@ -170,12 +178,14 @@ func sendEmptyRDB(conn net.Conn) error {
 	var message bytes.Buffer
 	message.WriteString(fmt.Sprintf("$%d\r\n", len(rdbData)))
 	message.Write(rdbData)
+	fmt.Println(message.String())
 
 	// Send the complete message in one write
-	if _, err := conn.Write(message.Bytes()); err != nil {
+	_, err := conn.Write(message.Bytes())
+	if err != nil {
+		fmt.Printf("failed to send RDB data: %v", err)
 		return fmt.Errorf("failed to send RDB data: %v", err)
 	}
-
 	return nil
 }
 

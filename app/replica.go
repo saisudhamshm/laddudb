@@ -46,16 +46,16 @@ func handShake(masterAddr, slavePort string) error {
 
 	w.Write(RespData{Type: Array, Array: []RespData{{Type: BulkString, Str: "PING"}}})
 
-	w.Write(RespData{Type: Array, Array: []RespData{
-		{Type: BulkString, Str: "REPLCONF"},
-		{Type: BulkString, Str: "listening-port"},
-		{Type: BulkString, Str: slavePort}, // Replace with actual slave port
-	}})
+	// w.Write(RespData{Type: Array, Array: []RespData{
+	// 	{Type: BulkString, Str: "REPLCONF"},
+	// 	{Type: BulkString, Str: "listening-port"},
+	// 	{Type: BulkString, Str: slavePort}, // Replace with actual slave port
+	// }})
 
-	w.Write(RespData{Type: Array, Array: []RespData{
-		{Type: BulkString, Str: "REPLCONF"},
-		{Type: BulkString, Str: "capa"},
-		{Type: BulkString, Str: "psync2"}, // Replace with actual slave port
-	}})
+	// w.Write(RespData{Type: Array, Array: []RespData{
+	// 	{Type: BulkString, Str: "REPLCONF"},
+	// 	{Type: BulkString, Str: "capa"},
+	// 	{Type: BulkString, Str: "psync2"}, // Replace with actual slave port
+	// }})
 	return nil
 }

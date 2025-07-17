@@ -187,6 +187,9 @@ func handleConnection(conn net.Conn) {
 			WriteReplInfo(db.replicationInfo, &conn, r)
 		} else if strings.ToLower(cmd) == "replconf" {
 			r.Write(RespData{Type: SimpleString, Str: "OK"})
+		} else if strings.ToLower(cmd) == "psync" {
+			r.Write(RespData{Type: SimpleString, Str: fmt.Sprintf("FULLRESYNC %s %d",
+				db.replicationInfo.masterReplID, db.replicationInfo.masterReplOffset)})
 		} else {
 			r.Write(RespData{Type: Error, Str: "ERR unknown command '" + cmd + "'"})
 		}

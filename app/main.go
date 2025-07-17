@@ -183,6 +183,8 @@ func handleConnection(conn net.Conn) {
 			} else {
 				r.Write(RespData{Type: Error, Str: "ERR wrong number of arguments for 'keys' command"})
 			}
+		} else if strings.ToLower(cmd) == "info" {
+			WriteReplInfo(db.replicationInfo, &conn, r)
 		} else {
 			r.Write(RespData{Type: Error, Str: "ERR unknown command '" + cmd + "'"})
 		}

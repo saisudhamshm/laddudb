@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -72,13 +73,13 @@ func main() {
 
 	l, err := net.Listen("tcp", "0.0.0.0:"+port)
 	if err != nil {
-		fmt.Println("Failed to bind to port" + port)
+		log.Println("Failed to bind to port" + port)
 		os.Exit(1)
 	}
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			fmt.Println("Error accepting connection: ", err.Error())
+			log.Println("Error accepting connection: ", err.Error())
 		}
 		go handleConnection(conn)
 	}
@@ -94,7 +95,7 @@ func handleConnection(conn net.Conn) {
 		}
 		cmd, er := parseCmd(val)
 		if er != nil {
-			fmt.Println("Error parsing command: ", er)
+			log.Println("Error parsing command: ", er)
 		}
 
 		handleCommand(cmd, r, conn)

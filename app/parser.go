@@ -103,6 +103,7 @@ func (r *RESPreader) Read() (RespData, error) {
 }
 
 func (r *RESPreader) ReadArray() ([]RespData, bool, error) {
+	// log.Println("Reading array")
 	count, err := r.ReadInt()
 	if err != nil {
 		return nil, false, err
@@ -127,6 +128,7 @@ func (r *RESPreader) ReadArray() ([]RespData, bool, error) {
 }
 
 func (r *RESPreader) ReadBulk() (string, bool, error) {
+	// log.Println("Reading bulk")
 	length, err := r.ReadInt()
 	if err != nil {
 		return "", false, err
@@ -154,6 +156,7 @@ func (r *RESPreader) ReadBulk() (string, bool, error) {
 	if cr != '\r' || lf != '\n' {
 		return "", false, errors.New("invalid bulk string termination")
 	}
+	// log.Printf("ReadBulk Completed: %s", string(buf))
 	return string(buf), false, nil
 }
 

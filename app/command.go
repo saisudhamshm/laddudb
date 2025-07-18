@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -55,6 +56,9 @@ func handleCommand(cmd Command, r *RESPreader, conn net.Conn) {
 			r.Write(RespData{Type: SimpleString, Str: "OK"})
 		} else {
 			r.Write(RespData{Type: Error, Str: "ERR wrong number of arguments for 'set' command"})
+		}
+		if db.replicationInfo.IsMaster {
+			db.cmdQueue <- cmd
 		}
 	case "get":
 		if len(cmd.args) == 1 {
@@ -126,7 +130,24 @@ func handleCommand(cmd Command, r *RESPreader, conn net.Conn) {
 		r.Write(RespData{Type: SimpleString, Str: fmt.Sprintf("FULLRESYNC %s %d",
 			db.replicationInfo.masterReplID, db.replicationInfo.masterReplOffset)})
 		sendEmptyRDB(conn)
+		addReplica(db, &conn)
 	default:
 		r.Write(RespData{Type: Error, Str: "ERR unknown command '" + cmd.cmd + "'"})
+	}
+}
+
+func handleSetCommand(db *DataBase, cmd Command) {
+	log.Println(cmd.cmd)
+	for _, arg := range cmd.args {
+		log.Println(arg)
+	}
+	if len(cmd.args) == 2 {
+		db.Add(cmd.args[0], cmd.args[1])
+	} else if len(cmd.args) == 4 && strings.ToLower(cmd.args[2]) == "px" {
+		num, err := strconv.Atoi(cmd.args[3])
+		if err != nil {
+			return
+		}
+		db.Addex(cmd.args[0], cmd.args[1], int64(num))
 	}
 }

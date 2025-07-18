@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"strings"
 )
@@ -12,6 +13,7 @@ type ReplicationInfo struct {
 	masterReplOffset int
 	masterAddr       string
 	replicas         []*net.Conn
+	masterConn       *net.Conn
 }
 
 func WriteReplInfo(replicationInfo ReplicationInfo, conn *net.Conn, w *RESPreader) {
@@ -25,10 +27,10 @@ func WriteReplInfo(replicationInfo ReplicationInfo, conn *net.Conn, w *RESPreade
 	w.Write(RespData{Type: BulkString, Str: info})
 }
 
-func handShake(masterAddr, slavePort string) error {
+func handShake(masterAddr, slavePort string) (*net.Conn, error) {
 	parts := strings.Split(masterAddr, " ")
 	if len(parts) != 2 {
-		return fmt.Errorf("invalid master address format. Expected '<IP> <PORT>', got '%s'", masterAddr)
+		return nil, fmt.Errorf("invalid master address format. Expected '<IP> <PORT>', got '%s'", masterAddr)
 	}
 
 	ip := parts[0]
@@ -40,11 +42,11 @@ func handShake(masterAddr, slavePort string) error {
 	// Attempt to establish TCP connection with master
 	conn, err := net.Dial("tcp", address)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	w := NewRESPreader(conn)
-	buf := make([]byte, 1024)
+	buf := make([]byte, 2048)
 
 	w.Write(RespData{Type: Array, Array: []RespData{{Type: BulkString, Str: "PING"}}})
 	w.writer.Flush()
@@ -77,5 +79,15 @@ func handShake(masterAddr, slavePort string) error {
 	w.writer.Flush()
 	conn.Read(buf)
 
+	return &conn, nil
+}
+
+func addReplica(db *DataBase, conn *net.Conn) error {
+	if conn == nil {
+		return fmt.Errorf("connection is nil")
+	}
+
+	db.replicationInfo.replicas = append(db.replicationInfo.replicas, conn)
+	log.Println("Replica added successfully")
 	return nil
 }

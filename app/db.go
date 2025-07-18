@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/hdt3213/rdb/encoder"
@@ -18,6 +20,7 @@ type DataBase struct {
 	port            string
 	rdbVersion      int
 	replicationInfo ReplicationInfo
+	cmdQueue        chan Command
 }
 
 type DBentry struct {
@@ -66,19 +69,68 @@ func NewDatabase(dir, dbfilename, port, masterAddr string) *DataBase {
 			masterAddr:       masterAddr,
 			replicas:         []*net.Conn{},
 		},
+		cmdQueue: make(chan Command),
 	}
 	return db
 }
 
 func (db *DataBase) init() {
 	if !db.replicationInfo.IsMaster {
-		handShake(db.replicationInfo.masterAddr, db.port)
+		conn, err := handShake(db.replicationInfo.masterAddr, db.port)
+		if err != nil {
+			fmt.Println("Error connecting to master:", err)
+			return
+		}
+		go db.listenToMaster(conn)
+	} else {
+		go db.propagateCommands()
 	}
 	if _, err := os.Stat(db.dir + "/" + db.dbfilename); err == nil {
 		err := db.LoadRDB()
 		if err != nil {
 			fmt.Printf("Error loading RDB file: %v\n", err)
 		}
+	}
+}
+
+func (db *DataBase) propagateCommands() {
+	for cmd := range db.cmdQueue {
+		writeCmd := fmt.Sprintf("*%d\r\n", len(cmd.args)+1)
+		writeCmd += fmt.Sprintf("$%d\r\n%s\r\n", len(cmd.cmd), cmd.cmd)
+		for _, arg := range cmd.args {
+			writeCmd += fmt.Sprintf("$%d\r\n%s\r\n", len(arg), arg)
+		}
+		for _, conn := range db.replicationInfo.replicas {
+			(*conn).Write([]byte(writeCmd))
+			// log.Println("Command propagated to replica:", writeCmd)
+		}
+	}
+
+}
+
+func (db *DataBase) listenToMaster(conn *net.Conn) {
+	r := NewRESPreader(*conn)
+	(*conn).Read(make([]byte, 2048))
+	log.Println("Listening to master")
+	for {
+		val, err := r.Read()
+		// log.Println("Received command from master:", val)
+		if err != nil {
+			// log.Println("Error reading command from master:", err)
+			continue
+		}
+		cmd, er := parseCmd(val)
+		if er != nil {
+			// log.Println("Error parsing command: ", er)
+			continue
+		}
+		if strings.ToLower(cmd.cmd) != "set" {
+			// log.Println("Unsupported command received from master")
+			continue
+		}
+		// log.Println("Code reached Line 122")
+
+		handleSetCommand(db, cmd)
 	}
 }
 
@@ -179,7 +231,6 @@ func sendEmptyRDB(conn net.Conn) error {
 	var message bytes.Buffer
 	message.WriteString(fmt.Sprintf("$%d\r\n", len(rdbData)))
 	message.Write(rdbData)
-	fmt.Println(message.String())
 
 	// Send the complete message in one write
 	_, err := conn.Write(message.Bytes())

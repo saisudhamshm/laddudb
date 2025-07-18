@@ -94,100 +94,105 @@ func handleConnection(conn net.Conn) {
 			conn.Close()
 			return
 		}
-		cmd, args, er := parseCmd(val)
+		cmd, er := parseCmd(val)
 		if er != nil {
 			fmt.Println("Error parsing command: ", er)
 		}
 
-		if cmd == "PING" {
-			r.Write(RespData{Type: SimpleString, Str: "PONG"})
-		} else if strings.ToLower(cmd) == "echo" {
-			r.Write(RespData{Type: BulkString, Str: args[0]})
-		} else if strings.ToLower(cmd) == "set" {
-			if len(args) == 2 {
-				db.Add(args[0], args[1])
-				r.Write(RespData{Type: SimpleString, Str: "OK"})
-			} else if len(args) == 4 && strings.ToLower(args[2]) == "px" {
-				num, err := strconv.Atoi(args[3])
-				if err != nil {
-					r.Write(RespData{Type: Error, Str: "wrong numeric value for expiry"})
-				}
-				db.Addex(args[0], args[1], int64(num))
-				r.Write(RespData{Type: SimpleString, Str: "OK"})
-			} else {
-				r.Write(RespData{Type: Error, Str: "ERR wrong number of arguments for 'set' command"})
-			}
-
-		} else if strings.ToLower(cmd) == "get" {
-			if len(args) == 1 {
-				val := db.Get(args[0])
-				if val == nil {
-					r.Write(RespData{Type: BulkString, IsNull: true})
-				} else {
-					r.Write(RespData{Type: BulkString, Str: *val})
-				}
-			} else {
-				r.Write(RespData{Type: Error, Str: "ERR wrong number of arguments for 'get' command"})
-			}
-		} else if strings.ToLower(cmd) == "save" {
-			if err := db.SaveRDB(); err != nil {
-				r.Write(RespData{Type: Error, Str: fmt.Sprintf("ERR %v", err)})
-			} else {
-				r.Write(RespData{Type: SimpleString, Str: "OK"})
-			}
-		} else if strings.ToLower(cmd) == "config" {
-			if strings.ToLower(args[0]) == "get" {
-				if args[1] == "dir" {
-					nameOfParam := RespData{Type: BulkString, Str: "dir", IsNull: false}
-					valueofParam := RespData{Type: BulkString, Str: db.dir, IsNull: false}
-					array := []RespData{nameOfParam, valueofParam}
-					r.WriteArray(array)
-				} else if args[1] == "dbfilename" {
-					nameOfParam := RespData{Type: BulkString, Str: "dbfilename", IsNull: false}
-					valueofParam := RespData{Type: BulkString, Str: db.dbfilename, IsNull: false}
-					array := []RespData{nameOfParam, valueofParam}
-					r.WriteArray(array)
-				} else if args[1] == "port" {
-					nameOfParam := RespData{Type: BulkString, Str: "port", IsNull: false}
-					valueofParam := RespData{Type: BulkString, Str: db.port, IsNull: false}
-					array := []RespData{nameOfParam, valueofParam}
-					r.WriteArray(array)
-				}
-			} else if strings.ToLower(args[0]) == "set" {
-				if args[1] == "dir" {
-					db.dir = args[2]
-					r.Write(RespData{Type: SimpleString, Str: "OK"})
-				} else if args[1] == "dbfilename" {
-					db.dbfilename = args[2]
-					r.Write(RespData{Type: SimpleString, Str: "OK"})
-				}
-			}
-		} else if strings.ToLower(cmd) == "keys" {
-			if len(args) == 1 {
-				keys := make([]RespData, 0, len(db.M))
-				for k := range db.M {
-					fmt.Println(k)
-					keys = append(keys, RespData{Type: BulkString, Str: k, IsNull: false})
-				}
-				if keys == nil {
-					r.Write(RespData{Type: Array, IsNull: true})
-				} else {
-					r.WriteArray(keys)
-				}
-			} else {
-				r.Write(RespData{Type: Error, Str: "ERR wrong number of arguments for 'keys' command"})
-			}
-		} else if strings.ToLower(cmd) == "info" {
-			WriteReplInfo(db.replicationInfo, &conn, r)
-		} else if strings.ToLower(cmd) == "replconf" {
-			r.Write(RespData{Type: SimpleString, Str: "OK"})
-		} else if strings.ToLower(cmd) == "psync" {
-			r.Write(RespData{Type: SimpleString, Str: fmt.Sprintf("FULLRESYNC %s %d",
-				db.replicationInfo.masterReplID, db.replicationInfo.masterReplOffset)})
-			sendEmptyRDB(conn)
-		} else {
-			r.Write(RespData{Type: Error, Str: "ERR unknown command '" + cmd + "'"})
-		}
+		handleCommand(cmd, r, conn)
 	}
 
+}
+
+func handleCommand(cmd Command, r *RESPreader, conn net.Conn) {
+	if strings.ToLower(cmd.cmd) == "PING" {
+		r.Write(RespData{Type: SimpleString, Str: "PONG"})
+	} else if strings.ToLower(cmd.cmd) == "echo" {
+		r.Write(RespData{Type: BulkString, Str: cmd.args[0]})
+	} else if strings.ToLower(cmd.cmd) == "set" {
+		if len(cmd.args) == 2 {
+			db.Add(cmd.args[0], cmd.args[1])
+			r.Write(RespData{Type: SimpleString, Str: "OK"})
+		} else if len(cmd.args) == 4 && strings.ToLower(cmd.args[2]) == "px" {
+			num, err := strconv.Atoi(cmd.args[3])
+			if err != nil {
+				r.Write(RespData{Type: Error, Str: "wrong numeric value for expiry"})
+			}
+			db.Addex(cmd.args[0], cmd.args[1], int64(num))
+			r.Write(RespData{Type: SimpleString, Str: "OK"})
+		} else {
+			r.Write(RespData{Type: Error, Str: "ERR wrong number of arguments for 'set' command"})
+		}
+
+	} else if strings.ToLower(cmd.cmd) == "get" {
+		if len(cmd.args) == 1 {
+			val := db.Get(cmd.args[0])
+			if val == nil {
+				r.Write(RespData{Type: BulkString, IsNull: true})
+			} else {
+				r.Write(RespData{Type: BulkString, Str: *val})
+			}
+		} else {
+			r.Write(RespData{Type: Error, Str: "ERR wrong number of arguments for 'get' command"})
+		}
+	} else if strings.ToLower(cmd.cmd) == "save" {
+		if err := db.SaveRDB(); err != nil {
+			r.Write(RespData{Type: Error, Str: fmt.Sprintf("ERR %v", err)})
+		} else {
+			r.Write(RespData{Type: SimpleString, Str: "OK"})
+		}
+	} else if strings.ToLower(cmd.cmd) == "config" {
+		if strings.ToLower(cmd.args[0]) == "get" {
+			switch cmd.args[1] {
+			case "dir":
+				nameOfParam := RespData{Type: BulkString, Str: "dir", IsNull: false}
+				valueofParam := RespData{Type: BulkString, Str: db.dir, IsNull: false}
+				array := []RespData{nameOfParam, valueofParam}
+				r.WriteArray(array)
+			case "dbfilename":
+				nameOfParam := RespData{Type: BulkString, Str: "dbfilename", IsNull: false}
+				valueofParam := RespData{Type: BulkString, Str: db.dbfilename, IsNull: false}
+				array := []RespData{nameOfParam, valueofParam}
+				r.WriteArray(array)
+			case "port":
+				nameOfParam := RespData{Type: BulkString, Str: "port", IsNull: false}
+				valueofParam := RespData{Type: BulkString, Str: db.port, IsNull: false}
+				array := []RespData{nameOfParam, valueofParam}
+				r.WriteArray(array)
+			}
+		} else if strings.ToLower(cmd.args[0]) == "set" {
+			if cmd.args[1] == "dir" {
+				db.dir = cmd.args[2]
+				r.Write(RespData{Type: SimpleString, Str: "OK"})
+			} else if cmd.args[1] == "dbfilename" {
+				db.dbfilename = cmd.args[2]
+				r.Write(RespData{Type: SimpleString, Str: "OK"})
+			}
+		}
+	} else if strings.ToLower(cmd.cmd) == "keys" {
+		if len(cmd.args) == 1 {
+			keys := make([]RespData, 0, len(db.M))
+			for k := range db.M {
+				fmt.Println(k)
+				keys = append(keys, RespData{Type: BulkString, Str: k, IsNull: false})
+			}
+			if keys == nil {
+				r.Write(RespData{Type: Array, IsNull: true})
+			} else {
+				r.WriteArray(keys)
+			}
+		} else {
+			r.Write(RespData{Type: Error, Str: "ERR wrong number of arguments for 'keys' command"})
+		}
+	} else if strings.ToLower(cmd.cmd) == "info" {
+		WriteReplInfo(db.replicationInfo, &conn, r)
+	} else if strings.ToLower(cmd.cmd) == "replconf" {
+		r.Write(RespData{Type: SimpleString, Str: "OK"})
+	} else if strings.ToLower(cmd.cmd) == "psync" {
+		r.Write(RespData{Type: SimpleString, Str: fmt.Sprintf("FULLRESYNC %s %d",
+			db.replicationInfo.masterReplID, db.replicationInfo.masterReplOffset)})
+		sendEmptyRDB(conn)
+	} else {
+		r.Write(RespData{Type: Error, Str: "ERR unknown command '" + cmd.cmd + "'"})
+	}
 }

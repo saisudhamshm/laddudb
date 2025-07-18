@@ -64,6 +64,7 @@ func NewDatabase(dir, dbfilename, port, masterAddr string) *DataBase {
 			masterReplID:     "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb",
 			masterReplOffset: 0,
 			masterAddr:       masterAddr,
+			replicas:         []*net.Conn{},
 		},
 	}
 	return db

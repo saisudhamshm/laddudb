@@ -331,30 +331,6 @@ func (w *RESPreader) WriteCommand(cmd string, args ...string) error {
 	return w.WriteArray(items)
 }
 
-func parseCmd(r RespData) (string, []string, error) {
-	if r.Type == SimpleString {
-		return "PING", nil, nil
-	}
-	if r.Type != Array {
-		return "", nil, fmt.Errorf("expected array, got %v", r.Type)
-	}
-
-	if len(r.Array) < 1 {
-		return "", nil, fmt.Errorf("expected at least one element in array")
-	}
-
-	cmd := r.Array[0].String()
-	args := make([]string, len(r.Array)-1)
-	for i, item := range r.Array[1:] {
-		if item.Type != BulkString {
-			return "", nil, fmt.Errorf("expected bulk string, got %v", item.Type)
-		}
-		args[i] = item.Str
-	}
-
-	return cmd, args, nil
-}
-
 func (w *RESPreader) writeWithoutFlush(data RespData) error {
 	switch data.Type {
 	case SimpleString:

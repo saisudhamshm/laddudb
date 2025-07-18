@@ -105,7 +105,7 @@ func handleConnection(conn net.Conn) {
 }
 
 func handleCommand(cmd Command, r *RESPreader, conn net.Conn) {
-	if strings.ToLower(cmd.cmd) == "PING" {
+	if strings.ToLower(cmd.cmd) == "ping" {
 		r.Write(RespData{Type: SimpleString, Str: "PONG"})
 	} else if strings.ToLower(cmd.cmd) == "echo" {
 		r.Write(RespData{Type: BulkString, Str: cmd.args[0]})

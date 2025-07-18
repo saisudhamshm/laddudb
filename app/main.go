@@ -98,12 +98,6 @@ func handleConnection(conn net.Conn) {
 		if er != nil {
 			fmt.Println("Error parsing command: ", er)
 		}
-		if val.Type != Array {
-			cmd = val.Str
-			fmt.Printf("Received string: %s\n", cmd)
-		} else {
-			cmd = val.Array[0].String()
-		}
 
 		if cmd == "PING" {
 			r.Write(RespData{Type: SimpleString, Str: "PONG"})

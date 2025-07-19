@@ -109,9 +109,9 @@ func (db *DataBase) propagateCommands() {
 }
 
 func (db *DataBase) listenToMaster(conn *net.Conn) {
+	(*conn).Read(make([]byte, 1024))
 	r := NewRESPreader(*conn)
-	(*conn).Read(make([]byte, 2048))
-	log.Println("Listening to master")
+	log.Println("---Listening to master---")
 	for {
 		val, n, err := r.Read()
 		// log.Println("Received command from master:", val)

@@ -131,6 +131,8 @@ func handleCommand(cmd Command, r *RESPreader, conn net.Conn) {
 				{Type: BulkString, Str: "ACK"},
 				{Type: BulkString, Str: fmt.Sprintf("%d", db.replicationInfo.ReplOffset)}, // Replace with actual slave port
 			}})
+		} else if strings.ToLower(cmd.args[0]) == "ack" {
+			log.Println("ACK received")
 		} else {
 			r.Write(RespData{Type: SimpleString, Str: "OK"})
 		}
@@ -139,12 +141,8 @@ func handleCommand(cmd Command, r *RESPreader, conn net.Conn) {
 			db.replicationInfo.masterReplID, db.replicationInfo.masterReplOffset)})
 		sendEmptyRDB(conn)
 		addReplica(db, &conn)
-		r.Write(RespData{Type: Array, Array: []RespData{
-			{Type: BulkString, Str: "REPLCONF"},
-			{Type: BulkString, Str: "GETACK"},
-			{Type: BulkString, Str: "*"}, // Replace with actual slave port
-		}})
-		log.Println("Sent command GETACK")
+		// db.cmdQueue <- Command{cmd: "REPLCONF", args: []string{"GETACK", "*"}}
+
 	default:
 		r.Write(RespData{Type: Error, Str: "ERR unknown command '" + cmd.cmd + "'"})
 	}

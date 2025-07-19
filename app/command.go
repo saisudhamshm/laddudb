@@ -144,6 +144,7 @@ func handleCommand(cmd Command, r *RESPreader, conn net.Conn) {
 			{Type: BulkString, Str: "GETACK"},
 			{Type: BulkString, Str: "*"}, // Replace with actual slave port
 		}})
+		log.Println("Sent command GETACK")
 	default:
 		r.Write(RespData{Type: Error, Str: "ERR unknown command '" + cmd.cmd + "'"})
 	}

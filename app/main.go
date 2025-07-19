@@ -94,6 +94,7 @@ func handleConnection(conn net.Conn) {
 			return
 		}
 		cmd, er := parseCmd(val)
+		log.Printf("Received command: %s", cmd.cmd)
 		if er != nil {
 			log.Println("Error parsing command: ", er)
 		}

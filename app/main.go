@@ -88,7 +88,7 @@ func main() {
 func handleConnection(conn net.Conn) {
 	r := NewRESPreader(conn)
 	for {
-		val, err := r.Read()
+		val, _, err := r.Read()
 		if err != nil {
 			conn.Close()
 			return

@@ -113,7 +113,7 @@ func (db *DataBase) listenToMaster(conn *net.Conn) {
 	(*conn).Read(make([]byte, 2048))
 	log.Println("Listening to master")
 	for {
-		val, err := r.Read()
+		val, n, err := r.Read()
 		// log.Println("Received command from master:", val)
 		if err != nil {
 			// log.Println("Error reading command from master:", err)
@@ -124,13 +124,33 @@ func (db *DataBase) listenToMaster(conn *net.Conn) {
 			// log.Println("Error parsing command: ", er)
 			continue
 		}
-		if strings.ToLower(cmd.cmd) != "set" {
-			// log.Println("Unsupported command received from master")
-			continue
-		}
-		// log.Println("Code reached Line 122")
+		switch strings.ToLower(cmd.cmd) {
+		case "replconf":
+			log.Println("Received REPLCONF GETACK command")
+			if strings.ToLower(cmd.args[0]) == "getack" {
+				r.Write(RespData{Type: Array, Array: []RespData{
+					{Type: BulkString, Str: "REPLCONF"},
+					{Type: BulkString, Str: "ACK"},
+					{Type: BulkString, Str: fmt.Sprintf("%d", db.replicationInfo.ReplOffset)}, // Replace with actual slave port
+				}})
+			}
+			db.replicationInfo.ReplOffset += n
 
-		handleSetCommand(db, cmd)
+		case "set":
+			err := handleSetCommand(db, cmd)
+			if err == nil {
+				db.replicationInfo.ReplOffset += n
+			}
+
+		case "ping":
+			db.replicationInfo.ReplOffset += n
+			continue
+
+		default:
+			log.Println("Received unknown command from master:", cmd.cmd)
+
+		}
+
 	}
 }
 

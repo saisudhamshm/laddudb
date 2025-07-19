@@ -125,18 +125,31 @@ func handleCommand(cmd Command, r *RESPreader, conn net.Conn) {
 	case "info":
 		WriteReplInfo(db.replicationInfo, &conn, r)
 	case "replconf":
-		r.Write(RespData{Type: SimpleString, Str: "OK"})
+		if strings.ToLower(cmd.args[0]) == "getack" {
+			r.Write(RespData{Type: Array, Array: []RespData{
+				{Type: BulkString, Str: "REPLCONF"},
+				{Type: BulkString, Str: "ACK"},
+				{Type: BulkString, Str: fmt.Sprintf("%d", db.replicationInfo.ReplOffset)}, // Replace with actual slave port
+			}})
+		} else {
+			r.Write(RespData{Type: SimpleString, Str: "OK"})
+		}
 	case "psync":
 		r.Write(RespData{Type: SimpleString, Str: fmt.Sprintf("FULLRESYNC %s %d",
 			db.replicationInfo.masterReplID, db.replicationInfo.masterReplOffset)})
 		sendEmptyRDB(conn)
 		addReplica(db, &conn)
+		r.Write(RespData{Type: Array, Array: []RespData{
+			{Type: BulkString, Str: "REPLCONF"},
+			{Type: BulkString, Str: "GETACK"},
+			{Type: BulkString, Str: "*"}, // Replace with actual slave port
+		}})
 	default:
 		r.Write(RespData{Type: Error, Str: "ERR unknown command '" + cmd.cmd + "'"})
 	}
 }
 
-func handleSetCommand(db *DataBase, cmd Command) {
+func handleSetCommand(db *DataBase, cmd Command) error {
 	log.Println(cmd.cmd)
 	for _, arg := range cmd.args {
 		log.Println(arg)
@@ -146,8 +159,9 @@ func handleSetCommand(db *DataBase, cmd Command) {
 	} else if len(cmd.args) == 4 && strings.ToLower(cmd.args[2]) == "px" {
 		num, err := strconv.Atoi(cmd.args[3])
 		if err != nil {
-			return
+			return err
 		}
 		db.Addex(cmd.args[0], cmd.args[1], int64(num))
 	}
+	return nil
 }

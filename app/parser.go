@@ -70,102 +70,119 @@ func NewRESPreader(conn net.Conn) *RESPreader {
 	}
 }
 
-func (r *RESPreader) Read() (RespData, error) {
+func (r *RESPreader) Read() (RespData, int, error) {
+	bytesRead := 0
 	firstByte, err := r.reader.ReadByte()
 	if err != nil {
-		return RespData{}, err
+		return RespData{}, 0, err
 	}
+	bytesRead++
 	switch firstByte {
 	case '+':
-		str, err := r.ReadString()
-		return RespData{Type: SimpleString, Str: str}, err
+		str, n, err := r.ReadString()
+		bytesRead += n
+		return RespData{Type: SimpleString, Str: str}, bytesRead, err
 
 	case '-':
-		str, err := r.ReadString()
-		return RespData{Type: Error, Str: str}, err
+		str, n, err := r.ReadString()
+		bytesRead += n
+		return RespData{Type: Error, Str: str}, bytesRead, err
 
 	case ':':
-		num, err := r.ReadInt()
-		return RespData{Type: Integer, Num: int64(num)}, err
+		num, n, err := r.ReadInt()
+		bytesRead += n
+		return RespData{Type: Integer, Num: int64(num)}, bytesRead, err
 
 	case '$':
-		str, isNull, err := r.ReadBulk()
-		return RespData{Type: BulkString, Str: str, IsNull: isNull}, err
+		str, n, isNull, err := r.ReadBulk()
+		bytesRead += n
+		return RespData{Type: BulkString, Str: str, IsNull: isNull}, bytesRead, err
 
 	case '*':
-		arr, isNull, err := r.ReadArray()
-		return RespData{Type: Array, Array: arr, IsNull: isNull}, err
+		arr, n, isNull, err := r.ReadArray()
+		bytesRead += n
+		return RespData{Type: Array, Array: arr, IsNull: isNull}, bytesRead, err
 
 	default:
-		return RespData{}, fmt.Errorf("invalid RESP type byte: %c", firstByte)
+		return RespData{}, 0, fmt.Errorf("invalid RESP type byte: %c", firstByte)
 	}
 
 }
 
-func (r *RESPreader) ReadArray() ([]RespData, bool, error) {
+func (r *RESPreader) ReadArray() ([]RespData, int, bool, error) {
 	// log.Println("Reading array")
-	count, err := r.ReadInt()
+	bytesRead := 0
+	count, n, err := r.ReadInt()
 	if err != nil {
-		return nil, false, err
+		return nil, 0, false, err
 	}
 	if count == -1 {
-		return nil, true, nil // Null array
+		return nil, 0, true, nil // Null array
 	}
 	if count < 0 {
-		return nil, false, fmt.Errorf("invalid array length: %d", count)
+		return nil, 0, false, fmt.Errorf("invalid array length: %d", count)
 	}
+	bytesRead += n
 
 	result := make([]RespData, 0, count)
 	for range count {
-		item, err := r.Read()
+		item, n, err := r.Read()
+		bytesRead += n
 		if err != nil {
-			return nil, false, err
+			return nil, 0, false, err
 		}
 		result = append(result, item)
 	}
-	return result, false, nil
+	return result, bytesRead, false, nil
 
 }
 
-func (r *RESPreader) ReadBulk() (string, bool, error) {
+func (r *RESPreader) ReadBulk() (string, int, bool, error) {
 	// log.Println("Reading bulk")
-	length, err := r.ReadInt()
+	bytesRead := 0
+	length, n, err := r.ReadInt()
+	bytesRead += n
 	if err != nil {
-		return "", false, err
+		return "", 0, false, err
 	}
 	if length == -1 {
-		return "", true, nil // Null bulk string
+		return "", 0, true, nil // Null bulk string
 	}
 	if length < 0 {
-		return "", false, fmt.Errorf("invalid bulk string length: %d", length)
+		return "", 0, false, fmt.Errorf("invalid bulk string length: %d", length)
 	}
 	buf := make([]byte, length)
-	_, err = io.ReadFull(r.reader, buf)
+	buflen, err := io.ReadFull(r.reader, buf)
+	bytesRead += buflen
 	if err != nil {
-		return "", false, err
+		return "", 0, false, err
 	}
 	// Expect \r\n after the string
 	cr, err := r.reader.ReadByte()
+	bytesRead++
 	if err != nil {
-		return "", false, err
+		return "", 0, false, err
 	}
 	lf, err := r.reader.ReadByte()
+	bytesRead++
 	if err != nil {
-		return "", false, err
+		return "", 0, false, err
 	}
 	if cr != '\r' || lf != '\n' {
-		return "", false, errors.New("invalid bulk string termination")
+		return "", 0, false, errors.New("invalid bulk string termination")
 	}
 	// log.Printf("ReadBulk Completed: %s", string(buf))
-	return string(buf), false, nil
+	return string(buf), bytesRead, false, nil
 }
 
-func (r *RESPreader) ReadInt() (int, error) {
+func (r *RESPreader) ReadInt() (int, int, error) {
 	val := 0
+	bytesRead := 0
 	var isNegative bool
 	firstByte, err := r.reader.ReadByte()
+	bytesRead++
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	switch firstByte {
 	case '+':
@@ -174,7 +191,7 @@ func (r *RESPreader) ReadInt() (int, error) {
 		isNegative = true
 	default:
 		if firstByte < '0' || firstByte > '9' {
-			return 0, errors.New("invalid integer format: non-numeric byte")
+			return 0, 0, errors.New("invalid integer format: non-numeric byte")
 		}
 		isNegative = false
 		val = int(firstByte - '0')
@@ -182,51 +199,57 @@ func (r *RESPreader) ReadInt() (int, error) {
 	for {
 		curr, err := r.reader.ReadByte()
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
+		bytesRead++
 		if curr == '\r' {
 			next, err := r.reader.ReadByte()
 			if err != nil {
-				return 0, err
+				return 0, 0, err
 			}
 			if next != '\n' {
-				return 0, errors.New("invalid integer format: missing LF after CR")
+				return 0, 0, errors.New("invalid integer format: missing LF after CR")
 			}
 			break
 		}
 		if curr < '0' || curr > '9' {
-			return 0, errors.New("invalid integer format: non-numeric byte")
+			return 0, 0, errors.New("invalid integer format: non-numeric byte")
 		}
 		val = val*10 + int(curr-'0')
 	}
 	if isNegative {
 		val = -val
 	}
-	return val, nil
+	return val, bytesRead, nil
 }
 
-func (r *RESPreader) ReadError() (error, error) {
-	errorMsg, err := r.ReadString()
+func (r *RESPreader) ReadError() (error, int, error) {
+	bytesRead := 0
+	errorMsg, n, err := r.ReadString()
+	bytesRead += n
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return errors.New(string(errorMsg)), nil
+	return errors.New(string(errorMsg)), bytesRead, nil
 }
 
-func (r *RESPreader) ReadString() (string, error) {
+func (r *RESPreader) ReadString() (string, int, error) {
+	bytesRead := 0
 	line := make([]byte, 0, 1024)
 	for {
 		curr, err := r.reader.ReadByte()
 		if err != nil {
-			return "", err
+			return "", 0, err
 		}
+		bytesRead++
 		if curr == '\r' {
 			next, er := r.reader.ReadByte()
 			if er != nil {
-				return "", er
+				return "", 0, er
 			}
+			bytesRead++
 			if next == '\n' {
-				return string(line), nil
+				return string(line), bytesRead, nil
 			} else {
 				line = append(line, curr)
 			}

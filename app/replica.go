@@ -13,7 +13,7 @@ type ReplicationInfo struct {
 	masterReplOffset int
 	masterAddr       string
 	replicas         []*net.Conn
-	masterConn       *net.Conn
+	ReplOffset       int
 }
 
 func WriteReplInfo(replicationInfo ReplicationInfo, conn *net.Conn, w *RESPreader) {

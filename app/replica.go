@@ -10,7 +10,7 @@ import (
 type ReplicationInfo struct {
 	IsMaster         bool
 	masterReplID     string
-	masterReplOffset int
+	masterReplOffset int64
 	masterAddr       string
 	replicas         []*net.Conn
 	ReplOffset       int

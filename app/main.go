@@ -87,6 +87,7 @@ func main() {
 
 func handleConnection(conn net.Conn) {
 	r := NewRESPreader(conn)
+	clientConn := ClientConn{conn: conn, isTransaction: false}
 	for {
 		val, _, err := r.Read()
 		if err != nil {
@@ -98,8 +99,7 @@ func handleConnection(conn net.Conn) {
 		if er != nil {
 			log.Println("Error parsing command: ", er)
 		}
-
-		handleCommand(cmd, r, conn)
+		handleCommand(cmd, r, &clientConn)
 	}
 
 }

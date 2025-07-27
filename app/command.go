@@ -6,11 +6,18 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 )
 
 type Command struct {
 	cmd  string
 	args []string
+}
+type ClientConn struct {
+	conn             net.Conn
+	transactionQueue []Command
+	isTransaction    bool
 }
 
 func parseCmd(r RespData) (Command, error) {
@@ -37,130 +44,417 @@ func parseCmd(r RespData) (Command, error) {
 	return Command{cmd: cmd, args: args}, nil
 }
 
-func handleCommand(cmd Command, r *RESPreader, conn net.Conn) {
+// executeCommand handles the command logic and returns RespData
+func executeCommand(cmd Command, clientConn *ClientConn, context bool) RespData {
+	switch strings.ToLower(cmd.cmd) {
+	case "multi":
+		return handleMultiCommand(cmd, clientConn)
+	case "exec":
+		return handleExecCommand(clientConn)
+	case "discard":
+		return handleDiscardCommand(clientConn)
+
+	}
+	if clientConn.isTransaction && !context {
+		clientConn.transactionQueue = append(clientConn.transactionQueue, cmd)
+		return RespData{Type: SimpleString, Str: "QUEUED"}
+	}
+
 	switch strings.ToLower(cmd.cmd) {
 	case "ping":
-		r.Write(RespData{Type: SimpleString, Str: "PONG"})
+		return RespData{Type: SimpleString, Str: "PONG"}
+
 	case "echo":
-		r.Write(RespData{Type: BulkString, Str: cmd.args[0]})
+		return RespData{Type: BulkString, Str: cmd.args[0]}
+
 	case "set":
-		if len(cmd.args) == 2 {
-			db.Add(cmd.args[0], cmd.args[1])
-			r.Write(RespData{Type: SimpleString, Str: "OK"})
-		} else if len(cmd.args) == 4 && strings.ToLower(cmd.args[2]) == "px" {
-			num, err := strconv.Atoi(cmd.args[3])
-			if err != nil {
-				r.Write(RespData{Type: Error, Str: "wrong numeric value for expiry"})
-			}
-			db.Addex(cmd.args[0], cmd.args[1], int64(num))
-			r.Write(RespData{Type: SimpleString, Str: "OK"})
-		} else {
-			r.Write(RespData{Type: Error, Str: "ERR wrong number of arguments for 'set' command"})
-		}
-		if db.replicationInfo.IsMaster {
-			db.cmdQueue <- cmd
-		}
+		return handleSetCommand(cmd)
+
 	case "get":
-		if len(cmd.args) == 1 {
-			val := db.Get(cmd.args[0])
-			if val == nil {
-				r.Write(RespData{Type: BulkString, IsNull: true})
-			} else {
-				r.Write(RespData{Type: BulkString, Str: *val})
-			}
-		} else {
-			r.Write(RespData{Type: Error, Str: "ERR wrong number of arguments for 'get' command"})
-		}
+		return handleGetCommand(cmd)
+
 	case "save":
 		if err := db.SaveRDB(); err != nil {
-			r.Write(RespData{Type: Error, Str: fmt.Sprintf("ERR %v", err)})
-		} else {
-			r.Write(RespData{Type: SimpleString, Str: "OK"})
+			return RespData{Type: Error, Str: fmt.Sprintf("ERR %v", err)}
 		}
+		return RespData{Type: SimpleString, Str: "OK"}
+
 	case "config":
-		switch strings.ToLower(cmd.args[0]) {
-		case "get":
-			switch cmd.args[1] {
-			case "dir":
-				nameOfParam := RespData{Type: BulkString, Str: "dir", IsNull: false}
-				valueofParam := RespData{Type: BulkString, Str: db.dir, IsNull: false}
-				array := []RespData{nameOfParam, valueofParam}
-				r.WriteArray(array)
-			case "dbfilename":
-				nameOfParam := RespData{Type: BulkString, Str: "dbfilename", IsNull: false}
-				valueofParam := RespData{Type: BulkString, Str: db.dbfilename, IsNull: false}
-				array := []RespData{nameOfParam, valueofParam}
-				r.WriteArray(array)
-			case "port":
-				nameOfParam := RespData{Type: BulkString, Str: "port", IsNull: false}
-				valueofParam := RespData{Type: BulkString, Str: db.port, IsNull: false}
-				array := []RespData{nameOfParam, valueofParam}
-				r.WriteArray(array)
-			}
-		case "set":
-			switch cmd.args[1] {
-			case "dir":
-				db.dir = cmd.args[2]
-				r.Write(RespData{Type: SimpleString, Str: "OK"})
-			case "dbfilename":
-				db.dbfilename = cmd.args[2]
-				r.Write(RespData{Type: SimpleString, Str: "OK"})
-			}
-		}
+		return handleConfigCommand(cmd)
+
 	case "keys":
-		if len(cmd.args) == 1 {
-			keys := make([]RespData, 0, len(db.M))
-			for k := range db.M {
-				fmt.Println(k)
-				keys = append(keys, RespData{Type: BulkString, Str: k, IsNull: false})
-			}
-			if keys == nil {
-				r.Write(RespData{Type: Array, IsNull: true})
-			} else {
-				r.WriteArray(keys)
-			}
-		} else {
-			r.Write(RespData{Type: Error, Str: "ERR wrong number of arguments for 'keys' command"})
-		}
+		return handleKeysCommand(cmd)
+
 	case "info":
-		WriteReplInfo(db.replicationInfo, &conn, r)
+		return handleInfoCommand()
+
 	case "replconf":
-		if strings.ToLower(cmd.args[0]) == "getack" {
-			r.Write(RespData{Type: Array, Array: []RespData{
-				{Type: BulkString, Str: "REPLCONF"},
-				{Type: BulkString, Str: "ACK"},
-				{Type: BulkString, Str: fmt.Sprintf("%d", db.replicationInfo.ReplOffset)}, // Replace with actual slave port
-			}})
-		} else if strings.ToLower(cmd.args[0]) == "ack" {
-			log.Println("ACK received")
-		} else {
-			r.Write(RespData{Type: SimpleString, Str: "OK"})
-		}
+		return handleReplConfCommand(cmd)
+
 	case "psync":
-		r.Write(RespData{Type: SimpleString, Str: fmt.Sprintf("FULLRESYNC %s %d",
-			db.replicationInfo.masterReplID, db.replicationInfo.masterReplOffset)})
-		sendEmptyRDB(conn)
-		addReplica(db, &conn)
-		// db.cmdQueue <- Command{cmd: "REPLCONF", args: []string{"GETACK", "*"}}
+		return handlePsyncCommand(clientConn)
+
+	case "wait":
+		return handleWaitCommand()
+
+	case "incr":
+		return handleIncrCommand(cmd)
+
+	case "lpush":
+		return handleLPushCommand(cmd)
+	case "rpush":
+		return handleRPushCommand(cmd)
+	case "lpop":
+		return handleLPopCommand(cmd)
+	case "rpop":
+		return handleRPopCommand(cmd)
+	case "llen":
+		return handleLLenCommand(cmd)
+	case "lrange":
+		return handleLRangeCommand(cmd)
 
 	default:
-		r.Write(RespData{Type: Error, Str: "ERR unknown command '" + cmd.cmd + "'"})
+		return RespData{Type: Error, Str: "ERR unknown command '" + cmd.cmd + "'"}
 	}
 }
 
-func handleSetCommand(db *DataBase, cmd Command) error {
-	log.Println(cmd.cmd)
-	for _, arg := range cmd.args {
-		log.Println(arg)
+// handleCommand executes the command and writes the result
+func handleCommand(cmd Command, r *RESPreader, clientConn *ClientConn) {
+	result := executeCommand(cmd, clientConn, false)
+
+	// Handle special cases that need additional operations after getting result
+	switch strings.ToLower(cmd.cmd) {
+	case "psync":
+		r.Write(result)
+		sendEmptyRDB(clientConn.conn)
+		addReplica(db, &clientConn.conn)
+		return
+
+	case "wait":
+		handleWaitResponse(cmd, r)
+		return
+
+	case "info":
+		WriteReplInfo(db.replicationInfo, &clientConn.conn, r)
+		return
+
+	case "config":
+		if strings.ToLower(cmd.args[0]) == "get" {
+			handleConfigGetResponse(cmd, r)
+			return
+		}
 	}
+
+	// Standard response writing
+	if result.Type == Array && len(result.Array) > 0 {
+		r.WriteArray(result.Array)
+	} else {
+		r.Write(result)
+	}
+
+	// Handle replication for master
+	if db.replicationInfo.IsMaster && shouldReplicate(cmd.cmd) {
+		db.cmdQueue <- cmd
+	}
+}
+
+// Helper functions for individual command logic
+func handleSetCommand(cmd Command) RespData {
 	if len(cmd.args) == 2 {
 		db.Add(cmd.args[0], cmd.args[1])
+		return RespData{Type: SimpleString, Str: "OK"}
 	} else if len(cmd.args) == 4 && strings.ToLower(cmd.args[2]) == "px" {
 		num, err := strconv.Atoi(cmd.args[3])
 		if err != nil {
-			return err
+			return RespData{Type: Error, Str: "wrong numeric value for expiry"}
 		}
 		db.Addex(cmd.args[0], cmd.args[1], int64(num))
+		atomic.StoreInt64(&db.ackCount, 0)
+		return RespData{Type: SimpleString, Str: "OK"}
 	}
+	return RespData{Type: Error, Str: "ERR wrong number of arguments for 'set' command"}
+}
+
+func handleGetCommand(cmd Command) RespData {
+	if len(cmd.args) != 1 {
+		return RespData{Type: Error, Str: "ERR wrong number of arguments for 'get' command"}
+	}
+
+	val := db.Get(cmd.args[0])
+	if val == nil {
+		return RespData{Type: BulkString, IsNull: true}
+	}
+	return RespData{Type: BulkString, Str: *val}
+}
+
+func handleConfigCommand(cmd Command) RespData {
+	if len(cmd.args) < 2 {
+		return RespData{Type: Error, Str: "ERR wrong number of arguments for config command"}
+	}
+
+	switch strings.ToLower(cmd.args[0]) {
+	case "get":
+		return handleConfigGet(cmd.args[1])
+	case "set":
+		return handleConfigSet(cmd.args[1], cmd.args[2])
+	default:
+		return RespData{Type: Error, Str: "ERR unknown config subcommand"}
+	}
+}
+
+func handleConfigGet(param string) RespData {
+	switch param {
+	case "dir":
+		return RespData{
+			Type: Array,
+			Array: []RespData{
+				{Type: BulkString, Str: "dir"},
+				{Type: BulkString, Str: db.dir},
+			},
+		}
+	case "dbfilename":
+		return RespData{
+			Type: Array,
+			Array: []RespData{
+				{Type: BulkString, Str: "dbfilename"},
+				{Type: BulkString, Str: db.dbfilename},
+			},
+		}
+	case "port":
+		return RespData{
+			Type: Array,
+			Array: []RespData{
+				{Type: BulkString, Str: "port"},
+				{Type: BulkString, Str: db.port},
+			},
+		}
+	default:
+		return RespData{Type: Array, IsNull: true}
+	}
+}
+
+func handleConfigSet(param, value string) RespData {
+	switch param {
+	case "dir":
+		db.dir = value
+		return RespData{Type: SimpleString, Str: "OK"}
+	case "dbfilename":
+		db.dbfilename = value
+		return RespData{Type: SimpleString, Str: "OK"}
+	default:
+		return RespData{Type: Error, Str: "ERR unsupported config parameter"}
+	}
+}
+
+func handleKeysCommand(cmd Command) RespData {
+	if len(cmd.args) != 1 {
+		return RespData{Type: Error, Str: "ERR wrong number of arguments for 'keys' command"}
+	}
+
+	keys := make([]RespData, 0, len(db.M))
+	for k := range db.M {
+		fmt.Println(k)
+		keys = append(keys, RespData{Type: BulkString, Str: k})
+	}
+
+	if len(keys) == 0 {
+		return RespData{Type: Array, IsNull: true}
+	}
+	return RespData{Type: Array, Array: keys}
+}
+
+func handleInfoCommand() RespData {
+	// This is a special case that needs custom handling in handleCommand
+	return RespData{Type: SimpleString, Str: "INFO_RESPONSE"}
+}
+
+func handleReplConfCommand(cmd Command) RespData {
+	if len(cmd.args) == 0 {
+		return RespData{Type: Error, Str: "ERR wrong number of arguments for replconf command"}
+	}
+
+	switch strings.ToLower(cmd.args[0]) {
+	case "getack":
+		return RespData{
+			Type: Array,
+			Array: []RespData{
+				{Type: BulkString, Str: "REPLCONF"},
+				{Type: BulkString, Str: "ACK"},
+				{Type: BulkString, Str: fmt.Sprintf("%d", db.replicationInfo.ReplOffset)},
+			},
+		}
+	case "ack":
+		if len(cmd.args) < 2 {
+			return RespData{Type: Error, Str: "ERR wrong number of arguments for replconf ack"}
+		}
+		_, err := strconv.ParseInt(cmd.args[1], 10, 64)
+		if err != nil {
+			log.Printf("Error parsing REPLCONF ACK offset '%s': %v", cmd.args[1], err)
+			return RespData{Type: Error, Str: "ERR invalid offset"}
+		}
+		atomic.AddInt64(&db.ackCount, 1)
+		return RespData{Type: SimpleString, Str: "OK"}
+	default:
+		return RespData{Type: SimpleString, Str: "OK"}
+	}
+}
+
+func handlePsyncCommand(clientConn *ClientConn) RespData {
+	return RespData{
+		Type: SimpleString,
+		Str: fmt.Sprintf("FULLRESYNC %s %d",
+			db.replicationInfo.masterReplID,
+			db.replicationInfo.masterReplOffset),
+	}
+}
+
+func handleWaitCommand() RespData {
+	// This needs special handling in handleCommand due to timing logic
+	return RespData{Type: SimpleString, Str: "WAIT_RESPONSE"}
+}
+
+func handleIncrCommand(cmd Command) RespData {
+	if len(cmd.args) != 1 {
+		return RespData{Type: Error, Str: "ERR wrong number of arguments for 'incr' command"}
+	}
+
+	err := db.Incr(cmd.args[0])
+	if err != nil {
+		return RespData{Type: Error, Str: err.Error()}
+	}
+	return RespData{Type: SimpleString, Str: "OK"}
+}
+
+// Special response handlers for complex cases
+func handleWaitResponse(cmd Command, r *RESPreader) {
+	db.cmdQueue <- Command{cmd: "REPLCONF", args: []string{"GETACK", "*"}}
+
+	requiredAcks, err := strconv.Atoi(cmd.args[0])
+	if err != nil {
+		r.Write(RespData{Type: Error, Str: "ERR invalid number format"})
+		return
+	}
+	timeoutMS, err := strconv.Atoi(cmd.args[1])
+	if err != nil {
+		r.Write(RespData{Type: Error, Str: "ERR invalid timeout format"})
+		return
+	}
+
+	timeout := time.Duration(timeoutMS) * time.Millisecond
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	timeoutChannel := time.After(timeout)
+	for {
+		select {
+		case <-ticker.C:
+			if db.ackCount >= int64(requiredAcks) {
+				response := fmt.Sprintf(":%d\r\n", db.ackCount)
+				r.Write(RespData{Type: SimpleString, Str: response})
+				return
+			}
+		case <-timeoutChannel:
+			response := fmt.Sprintf(":%d\r\n", db.ackCount)
+			r.Write(RespData{Type: SimpleString, Str: response})
+			return
+		}
+	}
+}
+
+func handleConfigGetResponse(cmd Command, r *RESPreader) {
+	result := handleConfigGet(cmd.args[1])
+	if result.Type == Array {
+		r.WriteArray(result.Array)
+	} else {
+		r.Write(result)
+	}
+}
+
+// Helper function to determine if command should be replicated
+func shouldReplicate(cmdName string) bool {
+	replicatedCommands := map[string]bool{
+		"set":   true,
+		"incr":  true,
+		"lpush": true,
+		"rpush": true,
+		"lpop":  true,
+		"rpop":  true,
+		// Add other commands that should be replicated
+	}
+	return replicatedCommands[strings.ToLower(cmdName)]
+}
+
+func handleIncrCommandSlave(db *DataBase, cmd Command) error {
+	if len(cmd.args) != 1 {
+		return fmt.Errorf("ERR wrong number of arguments for 'incr' command")
+	}
+
+	err := db.Incr(cmd.args[0])
+	if err != nil {
+		return fmt.Errorf("ERR failed to increment key '%s': %s", cmd.args[0], err.Error())
+	}
+	return nil
+}
+
+func handleSetCommandSlave(db *DataBase, cmd Command) error {
+	if len(cmd.args) == 2 {
+		db.Add(cmd.args[0], cmd.args[1])
+		return nil
+	} else if len(cmd.args) == 4 && strings.ToLower(cmd.args[2]) == "px" {
+		num, err := strconv.Atoi(cmd.args[3])
+		if err != nil {
+			return fmt.Errorf("ERR wrong numeric value for expiry")
+		}
+		db.Addex(cmd.args[0], cmd.args[1], int64(num))
+		return nil
+	}
+	return fmt.Errorf("ERR wrong number of arguments for 'set' command")
+}
+
+func handleLPUSHCommandSlave(db *DataBase, cmd Command) error {
+	if len(cmd.args) != 2 {
+		return fmt.Errorf("ERR wrong number of arguments for 'lpush' command")
+	}
+
+	key := cmd.args[0]
+	values := cmd.args[1:]
+
+	count := db.LPush(key, values...)
+	if count == -1 {
+		return fmt.Errorf("WRONGTYPE Operation against a key holding the wrong kind of value")
+	}
+	return nil
+}
+
+func handleRPUSHCommandSlave(db *DataBase, cmd Command) error {
+	if len(cmd.args) != 2 {
+		return fmt.Errorf("ERR wrong number of arguments for 'rpush' command")
+	}
+
+	key := cmd.args[0]
+	values := cmd.args[1:]
+
+	count := db.RPush(key, values...)
+	if count == -1 {
+		return fmt.Errorf("WRONGTYPE Operation against a key holding the wrong kind of value")
+	}
+	return nil
+}
+
+func handleLPOPCommandSlave(db *DataBase, cmd Command) error {
+	if len(cmd.args) != 1 {
+		return fmt.Errorf("ERR wrong number of arguments for 'lpop' command")
+	}
+
+	db.LPop(cmd.args[0])
+
+	return nil
+}
+
+func handleRPOPCommandSlave(db *DataBase, cmd Command) error {
+	if len(cmd.args) != 1 {
+		return fmt.Errorf("ERR wrong number of arguments for 'rpop' command")
+	}
+	db.RPop(cmd.args[0])
 	return nil
 }

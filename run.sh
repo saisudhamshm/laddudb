@@ -2,23 +2,19 @@
 #
 # Use this script to run your program LOCALLY.
 #
-# Note: Changing this script WILL NOT affect how CodeCrafters runs your program.
-#
-# Learn more: https://codecrafters.io/program-interface
+# This script compiles and runs a Go-based Redis implementation.
 
 set -e # Exit early if any commands fail
 
-# Copied from .codecrafters/compile.sh
+# Compile the Go program
 #
 # - Edit this to change how your program compiles locally
-# - Edit .codecrafters/compile.sh to change how your program compiles remotely
 (
   cd "$(dirname "$0")" # Ensure compile steps are run within the repository directory
-  go build -o /tmp/codecrafters-build-redis-go app/*.go
+  go build -o /tmp/redis-go app/*.go
 )
 
-# Copied from .codecrafters/run.sh
+# Run the compiled program
 #
 # - Edit this to change how your program runs locally
-# - Edit .codecrafters/run.sh to change how your program runs remotely
-exec /tmp/codecrafters-build-redis-go "$@"
+exec /tmp/redis-go "$@"

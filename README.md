@@ -29,23 +29,6 @@ A high-performance, Redis-compatible database implementation in Go with support 
 - Familiar Redis command syntax and behavior
 
 
-## Installation
-
-```bash
-go mod init your-redis-implementation
-go get github.com/hdt3213/rdb  # For RDB file handling
-```
-
-
-## Quick Start
-
-```go
-// Initialize the database
-db := NewDatabase()
-
-// Start the server
-go startServer(":6379", db)
-```
 
 
 ## Supported Commands
@@ -313,7 +296,7 @@ SAVE
 
 ## Building and Running
 ```bash
-./your_program.sh
+./run.sh
 ```
 
 ## Dependencies

@@ -114,6 +114,14 @@ func executeCommand(cmd Command, clientConn *ClientConn, context bool) RespData 
 		return handleLRangeCommand(cmd)
 	case "type":
 		return handleTypeCommand(cmd)
+	case "xadd":
+		return handleXAddCommand(cmd)
+	case "xlen":
+		return handleXLenCommand(cmd)
+	case "xrange":
+		return handleXRangeCommand(cmd)
+	case "xread":
+		return handleXReadCommand(cmd)
 
 	default:
 		return RespData{Type: Error, Str: "ERR unknown command '" + cmd.cmd + "'"}
@@ -394,7 +402,7 @@ func shouldReplicate(cmdName string) bool {
 		"rpush": true,
 		"lpop":  true,
 		"rpop":  true,
-		// Add other commands that should be replicated
+		"xadd":  true,
 	}
 	return replicatedCommands[strings.ToLower(cmdName)]
 }

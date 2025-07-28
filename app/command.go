@@ -112,6 +112,8 @@ func executeCommand(cmd Command, clientConn *ClientConn, context bool) RespData 
 		return handleLLenCommand(cmd)
 	case "lrange":
 		return handleLRangeCommand(cmd)
+	case "type":
+		return handleTypeCommand(cmd)
 
 	default:
 		return RespData{Type: Error, Str: "ERR unknown command '" + cmd.cmd + "'"}
@@ -156,6 +158,19 @@ func handleCommand(cmd Command, r *RESPreader, clientConn *ClientConn) {
 	if db.replicationInfo.IsMaster && shouldReplicate(cmd.cmd) {
 		db.cmdQueue <- cmd
 	}
+}
+
+func handleTypeCommand(cmd Command) RespData {
+	if len(cmd.args) != 1 {
+		return RespData{Type: Error, Str: "ERR wrong number of arguments for 'type' command"}
+	}
+
+	val := db.GetType(cmd.args[0])
+	if val == nil {
+		return RespData{Type: SimpleString, Str: "none"}
+	}
+
+	return RespData{Type: SimpleString, Str: *val}
 }
 
 // Helper functions for individual command logic

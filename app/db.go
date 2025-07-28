@@ -98,6 +98,24 @@ func (db *DataBase) Get(key string) *string {
 	return nil
 }
 
+func (db *DataBase) GetType(key string) *string {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	if entry, ok := db.M[key]; ok {
+		var typeStr string
+		switch entry.dataType {
+		case StringType:
+			typeStr = "string"
+		case ListType:
+			typeStr = "list"
+		default:
+			typeStr = "unknown" // Fallback for any future types not explicitly handled
+		}
+		return &typeStr
+	}
+	return nil
+}
+
 func NewDatabase(dir, dbfilename, port, masterAddr string) *DataBase {
 	var isMaster bool
 	if masterAddr == "" {

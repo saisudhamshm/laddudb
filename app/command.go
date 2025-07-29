@@ -69,6 +69,8 @@ func executeCommand(cmd Command, clientConn *ClientConn, context bool) RespData 
 
 	case "set":
 		return handleSetCommand(cmd)
+	case "delete":
+		return handleDeleteCommand(cmd)
 
 	case "get":
 		return handleGetCommand(cmd)
@@ -396,13 +398,14 @@ func handleConfigGetResponse(cmd Command, r *RESPreader) {
 // Helper function to determine if command should be replicated
 func shouldReplicate(cmdName string) bool {
 	replicatedCommands := map[string]bool{
-		"set":   true,
-		"incr":  true,
-		"lpush": true,
-		"rpush": true,
-		"lpop":  true,
-		"rpop":  true,
-		"xadd":  true,
+		"set":    true,
+		"incr":   true,
+		"lpush":  true,
+		"rpush":  true,
+		"lpop":   true,
+		"rpop":   true,
+		"xadd":   true,
+		"delete": true,
 	}
 	return replicatedCommands[strings.ToLower(cmdName)]
 }
@@ -480,4 +483,24 @@ func handleRPOPCommandSlave(db *DataBase, cmd Command) error {
 	}
 	db.RPop(cmd.args[0])
 	return nil
+}
+
+func handleDeleteCommandSlave(db *DataBase, cmd Command) error {
+	if len(cmd.args) != 1 {
+		return fmt.Errorf("ERR wrong number of arguments for 'delete' command")
+	}
+
+	db.Delete(cmd.args[0])
+
+	return nil
+}
+
+func handleDeleteCommand(cmd Command) RespData {
+	if len(cmd.args) != 1 {
+		return RespData{Type: Error, Str: "ERR wrong number of arguments for 'delete' command"}
+	}
+
+	db.Delete(cmd.args[0])
+
+	return RespData{Type: SimpleString, Str: "OK"}
 }

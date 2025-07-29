@@ -253,6 +253,11 @@ func (db *DataBase) listenToMaster(conn *net.Conn) {
 			if err == nil {
 				db.replicationInfo.ReplOffset += n
 			}
+		case "delete":
+			err := handleDeleteCommandSlave(db, cmd)
+			if err == nil {
+				db.replicationInfo.ReplOffset += n
+			}
 
 		default:
 			log.Println("Received unknown command from master:", cmd.cmd)
@@ -260,6 +265,10 @@ func (db *DataBase) listenToMaster(conn *net.Conn) {
 		}
 
 	}
+}
+
+func (db *DataBase) Delete(key string) {
+	delete(db.M, key)
 }
 
 func (db *DataBase) SaveRDB() error {

@@ -41,6 +41,7 @@ A high-performance, Redis-compatible database implementation in Go with support 
 | `SET key value PX milliseconds` | Set with expiration | `SET temp "value" PX 5000` |
 | `GET key` | Get the value of a key | `GET mykey` |
 | `INCR key` | Increment the integer value of a key | `INCR counter` |
+| `DELTETE key`| Delete a value from the database if exists irrespective of the type| `DELETE mykey`|
 
 ### List Commands
 
